@@ -38,6 +38,11 @@ app.get('/api/status', (req, res) => res.json({
   lastRangeCheck
 }));
 
+app.get('/api/diagnostics', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ online: true, apiConfigured: Boolean(TOKEN), lastRangeCheck, endpoint: '/ranges', dataType: 'range_metadata_only' });
+});
+
 app.get('/api/ranges', async (req, res) => {
   res.set('Cache-Control', 'no-store');
   if (!TOKEN) {
@@ -52,6 +57,7 @@ app.get('/api/ranges', async (req, res) => {
       const status = upstream.status;
       const code = status === 401 || status === 403 ? 'authentication_failed' : status === 429 ? 'rate_limited' : 'upstream_http_error';
       lastRangeCheck = { ok: false, code, upstreamStatus: status, checkedAt: new Date().toISOString() };
+      console.warn('[lamix-ranges] Upstream HTTP status:', status, 'code:', code);
       return res.status(status === 429 ? 429 : 502).json({
         success: false, code, upstreamStatus: status,
         error: code === 'authentication_failed' ? 'API autentifikasiyası uğursuz oldu.' :
@@ -61,10 +67,12 @@ app.get('/api/ranges', async (req, res) => {
     const items = parseRanges(upstream.data);
     if (!items) {
       lastRangeCheck = { ok: false, code: 'unexpected_response', checkedAt: new Date().toISOString() };
+      console.warn('[lamix-ranges] Unexpected response structure; body type:', Array.isArray(upstream.data) ? 'array' : typeof upstream.data);
       return res.status(502).json({ success: false, code: 'unexpected_response', error: 'API cavabında diapazon siyahısı tapılmadı.' });
     }
     const ranges = items.map(rangeSummary).filter(Boolean);
     lastRangeCheck = { ok: true, count: ranges.length, checkedAt: new Date().toISOString() };
+    console.info('[lamix-ranges] Retrieved metadata entries:', ranges.length);
     return res.json({ success: true, ranges });
   } catch (error) {
     const code = error.code === 'ECONNABORTED' ? 'timeout' : 'connection_failed';
