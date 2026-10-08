@@ -4,7 +4,7 @@ const path = require('path');
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-const BASE_URL = (process.env.LAMIX_API_BASE_URL || 'https://panel.lamix.org/api/v1').replace(/\/$/, '');
+const BASE_URL = (process.env.LAMIX_API_BASE_URL || process.env.BASE_URL || 'https://panel.lamix.org/api/v1').trim().replace(/\/+$/, '');
 const TOKEN = process.env.LAMIX_API_TOKEN || '';
 const PORT = process.env.PORT || 3000;
 app.get('/health', (req, res) => res.json({status: 'ok'}));
