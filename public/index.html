@@ -66,7 +66,7 @@ async function reload(){
   put('connection',configured?'Server aktiv':'API konfiqurasiyası yoxdur');$('statusDot').className='badge-dot'+(configured?' ok':'');put('apiState',configured?'Aktiv':'Gözləyir');put('apiCaption',configured?'API açarı təyin edilib':'Açar konfiqurasiya edilməyib');
   put('configShort',configured?'Var':'Yoxdur');put('configStatus',configured?'Təyin edilib':'Təyin edilməyib');
   if(!configured){ranges=[];setNotice('LAMIX API açarı hələ qoşulmayıb. Render Environment-də LAMIX_API_TOKEN təyin edilməlidir.',true);render();return}
-  const res=await fetch('/api/ranges',{cache:'no-store'});const data=await res.json();if(!res.ok||!data.success||!Array.isArray(data.ranges))throw Error('Diapazon məlumatları alınmadı');
+  const res=await fetch('/api/ranges',{cache:'no-store'});const data=await res.json();if(!res.ok||!data.success||!Array.isArray(data.ranges))throw Error(data.error || 'Diapazon məlumatları alınmadı');
   ranges=data.ranges;const now=new Date().toLocaleTimeString('az-AZ',{hour:'2-digit',minute:'2-digit'});put('lastUpdate',now);put('syncTime',now);setNotice('API ilə bağlantı quruldu. Xidmət diapazonları yeniləndi.');render();
  }catch(error){put('connection','Bağlantı xətası');$('statusDot').className='badge-dot';setNotice('API məlumatı alınmadı: '+error.message,true);ranges=[];render()}finally{busy=false;$('refresh').disabled=false}
 }
