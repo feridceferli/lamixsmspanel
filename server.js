@@ -24,6 +24,22 @@ function parseRanges(body) {
   return lists.find(list => list.length > 0) || lists[0] || null;
 }
 
+function describeEnvelope(body) {
+  // Only safe structural metadata, never return raw provider records or secrets.
+  if (Array.isArray(body)) return { type: 'array', length: body.length };
+  if (!body || typeof body !== 'object') return { type: typeof body };
+  const allow = ['ranges', 'data', 'result', 'list', 'items', 'success', 'status', 'code', 'meta'];
+  const keys = Object.keys(body).filter(key => allow.includes(key));
+  const structure = {};
+  for (const key of keys) {
+    const value = body[key];
+    structure[key] = Array.isArray(value) ? { type: 'array', length: value.length }
+      : value && typeof value === 'object' ? { type: 'object', keys: Object.keys(value).filter(k => allow.includes(k)) }
+      : { type: typeof value };
+  }
+  return { type: 'object', keys, structure };
+}
+
 function rangeSummary(item) {
   // Some range APIs return strings rather than objects.
   if (typeof item === 'string' && item.trim()) {
@@ -73,19 +89,25 @@ app.get('/api/ranges', async (req, res) => {
                code === 'rate_limited' ? 'API sorğu limitinə çatıb.' : 'API serveri xəta qaytardı.'
       });
     }
+    const envelope = describeEnvelope(upstream.data);
+    if (upstream.data && typeof upstream.data === 'object'
+        && (upstream.data.success === false || upstream.data.status === 'error')) {
+      lastRangeCheck = { ok: false, code: 'upstream_business_error', upstreamStatus: upstream.status, envelope, checkedAt: new Date().toISOString() };
+      return res.status(502).json({ success: false, code: 'upstream_business_error', error: 'API HTTP 200 qaytardı, lakin cavabın daxilində xəta statusu var.' });
+    }
     const items = parseRanges(upstream.data);
     if (!items) {
-      lastRangeCheck = { ok: false, code: 'unexpected_response', checkedAt: new Date().toISOString() };
+      lastRangeCheck = { ok: false, code: 'unexpected_response', upstreamStatus: upstream.status, envelope, checkedAt: new Date().toISOString() };
       console.warn('[lamix-ranges] Unexpected response structure; body type:', Array.isArray(upstream.data) ? 'array' : typeof upstream.data);
       return res.status(502).json({ success: false, code: 'unexpected_response', error: 'API cavabında diapazon siyahısı tapılmadı.' });
     }
     const ranges = items.map(rangeSummary).filter(Boolean);
     const rawCount = items.length;
     if (rawCount && !ranges.length) {
-      lastRangeCheck = { ok: false, code: 'unrecognized_range_items', rawCount, checkedAt: new Date().toISOString() };
+      lastRangeCheck = { ok: false, code: 'unrecognized_range_items', rawCount, upstreamStatus: upstream.status, envelope, checkedAt: new Date().toISOString() };
       return res.status(502).json({ success: false, code: 'unrecognized_range_items', error: 'API məlumat qaytardı, lakin diapazon formatı tanınmadı.' });
     }
-    lastRangeCheck = { ok: true, count: ranges.length, rawCount, code: ranges.length ? 'ranges_available' : 'upstream_empty', checkedAt: new Date().toISOString() };
+    lastRangeCheck = { ok: true, count: ranges.length, rawCount, upstreamStatus: upstream.status, envelope, code: ranges.length ? 'ranges_available' : 'upstream_empty', checkedAt: new Date().toISOString() };
     console.info('[lamix-ranges] Retrieved metadata entries:', ranges.length);
     return res.json({ success: true, ranges });
   } catch (error) {
