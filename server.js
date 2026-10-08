@@ -15,18 +15,27 @@ const client = axios.create({ timeout: 8000, validateStatus: () => true });
 let lastRangeCheck = null;
 
 function parseRanges(body) {
-  // Providers may wrap the list under ranges, data, or data.ranges.
-  const candidates = [body, body?.ranges, body?.data, body?.data?.ranges, body?.result?.ranges];
-  return candidates.find(Array.isArray) || null;
+  // Only inspect known availability containers; never traverse messages or OTP data.
+  const candidates = [
+    body, body?.ranges, body?.data, body?.data?.ranges, body?.data?.list,
+    body?.result, body?.result?.ranges, body?.result?.list, body?.list, body?.items
+  ];
+  const lists = candidates.filter(Array.isArray);
+  return lists.find(list => list.length > 0) || lists[0] || null;
 }
 
 function rangeSummary(item) {
+  // Some range APIs return strings rather than objects.
+  if (typeof item === 'string' && item.trim()) {
+    return { id: item.trim().slice(0, 100), country: '', rate: null };
+  }
   if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
-  const id = item.id ?? item.range_id ?? item.rangeId ?? '';
+  const id = item.id ?? item.range_id ?? item.rangeId ?? item.prefix ?? '';
   const country = item.country ?? item.country_name ?? item.countryName ?? item.name ?? '';
   const rawRate = item.rate ?? item.payout;
   const rate = typeof rawRate === 'number' && Number.isFinite(rawRate) ? rawRate : null;
-  // Intentionally do not return individual numbers or message contents.
+  if (!String(id).trim() && !String(country).trim()) return null;
+  // Only expose range metadata, not full phone numbers or messages.
   return { id: String(id).slice(0, 100), country: String(country).slice(0, 100), rate };
 }
 
@@ -71,7 +80,12 @@ app.get('/api/ranges', async (req, res) => {
       return res.status(502).json({ success: false, code: 'unexpected_response', error: 'API cavabında diapazon siyahısı tapılmadı.' });
     }
     const ranges = items.map(rangeSummary).filter(Boolean);
-    lastRangeCheck = { ok: true, count: ranges.length, checkedAt: new Date().toISOString() };
+    const rawCount = items.length;
+    if (rawCount && !ranges.length) {
+      lastRangeCheck = { ok: false, code: 'unrecognized_range_items', rawCount, checkedAt: new Date().toISOString() };
+      return res.status(502).json({ success: false, code: 'unrecognized_range_items', error: 'API məlumat qaytardı, lakin diapazon formatı tanınmadı.' });
+    }
+    lastRangeCheck = { ok: true, count: ranges.length, rawCount, code: ranges.length ? 'ranges_available' : 'upstream_empty', checkedAt: new Date().toISOString() };
     console.info('[lamix-ranges] Retrieved metadata entries:', ranges.length);
     return res.json({ success: true, ranges });
   } catch (error) {
